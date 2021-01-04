@@ -1,5 +1,5 @@
 ---
-title: "individual_case"
+title: "Predicting Insurance Company Customer Behavior"
 author: "Daniel Shang"
 output:
   pdf_document: default
