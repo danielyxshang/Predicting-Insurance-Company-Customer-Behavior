@@ -1,0 +1,457 @@
+---
+title: "individual_case"
+author: "Daniel Shang"
+output:
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ggplot2)
+library(dplyr)
+library(ggthemes)
+library(ggcorrplot)
+library(mefa4)
+library(e1071)
+library(faraway)
+data = read.csv('C:/Users/34527/Desktop/dataset.csv')
+data_raw = read.csv('C:/Users/34527/Desktop/dataset.csv')
+```
+
+---------------------------------------------------------- Data cleaning ----------------------------------------------------------
+```{r}
+# Check if there is any missing data in the data set
+for (i in 1:ncol(data)) {
+  print(paste(colnames(data)[i], ':', sum(is.null(data[, i]))))
+  print(paste(colnames(data)[i], ':', sum(data[, i] == 'NA')))
+  print(paste(colnames(data)[i], ':', sum(data[, i] == 'N/A')))
+  print(paste(colnames(data)[i], ':', sum(data[, i] == '')))
+}
+```
+
+```{r}
+# Transform categorical variables to dummy variables for easier analysis and better 
+## model performance
+data[data[, 'Vehicle_Damage'] == 'Yes', 'Vehicle_Damage'] = 1
+data[data[, 'Vehicle_Damage'] == 'No', 'Vehicle_Damage'] = 0
+data[data[, 'Vehicle_Age'] == '< 1 Year', 'Vehicle_Age'] = 0
+data[data[, 'Vehicle_Age'] == '1-2 Year', 'Vehicle_Age'] = 1
+data[data[, 'Vehicle_Age'] == '> 2 Years', 'Vehicle_Age'] = 2
+data[data[, 'Gender'] == 'Female', 'Gender'] = 0
+data[data[, 'Gender'] == 'Male', 'Gender'] = 1
+```
+
+```{r}
+# Manually remove the data points that is overly unrepresentative. The existance of
+## these unrepresentative data points would abort the train/test split and other analysis
+to_be_removed = data %>% count(Policy_Sales_Channel) %>%
+  group_by(Policy_Sales_Channel) %>% filter(n < 5)
+data = data[data$Policy_Sales_Channel %notin% to_be_removed$Policy_Sales_Channel, ]
+data = data[, colnames(data)!= 'id']
+```
+
+--------------------------------------------------- Exploratory Data Analysis ------------------------------------------------------
+```{r}
+# A histogram showing the distribution of customer age
+ggplot(data = data, aes(Age)) +
+  geom_histogram(aes(y=..density..), fill="dodgerblue4", color = 'white', alpha = 0.8,
+                 bins = 30) +
+  geom_density() +
+  labs(title = 'Histogram of Age') +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  labs(title = 'Histogram of Age') +
+  theme_hc()
+```
+
+
+```{r}
+# A histogram showing the distribution of annual premium customers currently pay
+ggplot(data = data, aes(Annual_Premium)) +
+  geom_histogram(aes(y=..density..), fill="dodgerblue4", color = 'gray', alpha = 0.8,
+                 bins = 50) +
+  geom_density(adjust = 3) +
+  labs(title = 'Histogram of Annual_Premium (in thousand)') +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_hc() +
+  scale_x_continuous(labels = function(x){x/10^3})
+```
+
+```{r}
+# A histogram showing the distribution of customer vintage (the number of days they
+## have been associated with the company)
+ggplot(data = data, aes(Vintage)) +
+  geom_histogram(aes(y=..density..), fill="dodgerblue4", color = 'white', alpha = 0.8,
+                 bins = 30) +
+  geom_density() +
+  labs(title = 'Histogram of Vintage') +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_hc()
+```
+
+```{r}
+# A bar chart showing the number of customers in each gender group
+ggplot(data = data, aes(Gender, fill = Gender)) +
+  geom_bar(width = 0.5, alpha = 0.8, color = 'white', show.legend = FALSE) +
+  labs(title = 'Bar chart of Gender') +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_hc()
+```
+
+```{r}
+# A bar chart showing the number of customers with and without a driver's license
+ggplot(data = data, aes(factor(Driving_License), fill = factor(Driving_License))) +
+  geom_bar(width = 0.5, alpha = 0.8, show.legend = FALSE) +
+  labs(title = 'Bar chart of Driving_License (in thousand)', x = 'Driving_License') +
+  theme(plot.title = element_text(hjust = 0.5), legend.position = 'none') +
+  scale_y_continuous(labels = function(y) {y/10^3}) +
+  theme_hc()
+```
+
+```{r}
+# A bar chart showing the number of customers within each region code
+ggplot(data = data, aes(factor(Region_Code), fill = factor(Region_Code))) +
+  geom_bar(alpha = 0.8, color = 'white', show.legend = FALSE) +
+  labs(title = 'Bar chart of Region_Code', x = 'Region_Code') +
+  theme(plot.title = element_text(hjust = 0.5),
+        axis.text.x = element_text(angle = 90, hjust = 1, vjust = 0.3)) +
+  theme_hc()
+```
+
+```{r}
+# A bar chart showing the number of customers who are and are not previously insured
+ggplot(data = data, aes(factor(Previously_Insured), fill = factor(Previously_Insured))) +
+  geom_bar(width = 0.5, alpha = 0.8, color = 'white', show.legend = FALSE) +
+  labs(title = 'Bar chart of Previously_Insured', x = 'Previously_Insured') +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_hc()
+```
+
+```{r}
+# A bar chart showing the count of customers with a vehicle that falls into each of
+## the three vehicle age groups
+ggplot(data = data, aes(factor(Vehicle_Age, ordered = TRUE, levels = c('0', '1', '2')),
+    fill = factor(Vehicle_Age))) +
+  geom_bar(width = 0.5, alpha = 0.8, color = 'white', show.legend = FALSE) +
+  labs(title = 'Bar chart of Vehicle_Age', x = 'Vehicle_Age') +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_hc()
+```
+
+```{r}
+# A bar chart showing the number of customers with and without their vehicle been damaged
+ggplot(data = data, aes(Vehicle_Damage, fill = Vehicle_Damage)) +
+  geom_bar(width = 0.5, alpha = 0.8, color = 'white', show.legend = FALSE) +
+  labs(title = 'Bar chart of Vehicle_Damage') +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_hc()
+```
+
+```{r}
+# A bar chart showing the number of customers within each policy sales channel
+data %>% ggplot(aes(x = reorder(factor(Policy_Sales_Channel),
+      Policy_Sales_Channel, function(x) -length(x)),
+      fill = factor(Policy_Sales_Channel))) +
+  geom_bar(alpha = 0.8, color = 'white', show.legend = FALSE) +
+  labs(title = 'Bar chart of Policy_Sales_Channel (High to low in thousand)',
+       x = 'Policy_Sales_Channel') +
+  theme(axis.text.x = element_text(hjust = 1, angle = 90, vjust = 0.3, size = 7.5)) +
+  scale_y_continuous(labels = function(y) {y/10^3}) +
+  theme_hc()
+```
+
+```{r}
+# A bar chart showing the count of customers' response
+ggplot(data = data, aes(factor(Response), fill = factor(Response))) +
+  geom_bar(stat = 'count', width = 0.5, alpha = 0.8, color = 'white', show.legend = FALSE) +
+  labs(title = 'Bar chart of customer response', x = 'Response', y = 'count (in thousand)') +
+  scale_y_continuous(labels = function(y) {y / 1000}) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_hc()
+```
+
+```{r}
+# A stacked bar chart showing, within each customer response group, what percentage
+## of customers is male and female
+ggplot(data, aes(factor(Response), fill = factor(Gender))) +
+  geom_bar(width = 0.5, alpha = 0.8, position = 'fill', color = 'white') +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = 'Customer response', title = 'Customer response combined with gender') +
+  theme(plot.title = element_text(hjust = 0.5)) + 
+  theme_hc()
+```
+
+```{r}
+# A stacked bar chart showing, within each customer response group, what percentage 
+## of customers have or do not have a driver's license. Since most customers have a
+## driver's license, the pink part is invisible
+ggplot(data, aes(x = factor(Response), fill = factor(Driving_License))) +
+  geom_bar(width = 0.5, alpha = 0.8, position = 'fill', color = 'white') +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = 'Customer response', 
+       title = 'Customer response combined with drivering license') +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_hc()
+```
+
+```{r}
+# A stacked bar chart showing, within each customer response group, what percentage of
+## customers are previously insured
+ggplot(data = data, aes(factor(Response), fill = factor(Previously_Insured))) + 
+  geom_bar(width = 0.5, alpha = 0.8, position = 'fill', color = 'white') + 
+  scale_y_continuous(labels = scales::percent) + 
+  labs(x='Customer response', title = 'Customer response combined with previously insured') +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_hc()
+```
+
+```{r}
+# A stacked bar chart showing, within each customer response group, what percentage of
+## customers have their vehicle damaged before
+ggplot(data, aes(x = factor(Response), fill = factor(Vehicle_Damage))) +
+  geom_bar(width = 0.5, alpha = 0.8, position = 'fill', color = 'white') +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = 'Customer response', title = 
+         'Customer response combined with Vehicle_damage') +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_hc()
+```
+
+```{r}
+# A stacked bar chart showing, within each customer response group, what percentage of
+## customers have a vehicle with an age below one year, from one to two years, and over
+## two years respectively
+ggplot(data, aes(x = factor(Response), fill = factor(Vehicle_Age))) +
+  geom_bar(width = 0.5, alpha = 0.8, position = 'fill', color = 'white') +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = 'Customer response combined with vehicle age') +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_hc()
+```
+
+```{r}
+# A density plot showing how customers' ages are distributed within each response
+## group
+ggplot(data, aes(x = Age, fill = factor(Response))) +
+  geom_density(alpha = 0.8) +
+  labs(title = 'Customer response by age') +
+  scale_y_continuous(labels = scales::percent) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_hc()
+```
+```{r}
+# A histogram showing how customers' annual premiums are distributed within each
+## response group
+ggplot(data, aes(x = Annual_Premium, fill = factor(Response))) +
+  geom_histogram(alpha = 0.8, color = 'black') +
+  geom_density() +
+  labs(title = 'Customer response by annual premium paid (0 - 100K)',
+       x = 'Annual_Premium (in thousand)') +
+  scale_x_continuous(labels = function(x) {x / 1000}) +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  xlim(0, 100000) +
+  theme_hc()
+```
+
+```{r}
+# A density plot showing how customers' vintages are distributed within each response
+## group
+ggplot(data, aes(Vintage, fill = factor(Response))) +
+  geom_density(alpha = 0.8) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = 'Customer response by vintage') +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_hc()
+```
+
+```{r}
+# A density plot showing how customers of different response group are distributed
+## within the country 
+ggplot(data, aes(x = Region_Code, fill = factor(Response))) +
+  geom_density(alpha = 0.8) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = 'Customer response by region code') +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_hc()
+```
+
+```{r}
+# A density plot showing how customers within each response group are distributed
+## among different policy sales channel
+ggplot(data, aes(x = Policy_Sales_Channel, fill = factor(Response))) +
+  geom_density(alpha = 0.8) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = 'Customer response by policy sales channel') +
+  theme(plot.title = element_text(hjust = 0.5)) +
+  theme_hc()
+```
+
+```{r}
+# A correlation matrix showing the correlation between each pair of the variables
+data_matrix = data
+for (i in 1:ncol(data_matrix)) {
+  data_matrix[, i] = as.numeric(data_matrix[, i])
+}
+
+ggcorrplot(cor(data_matrix), method = 'square', type = 'full', lab = TRUE, 
+      ggtheme = theme_void, lab_size = 2.5, outline.color = 'black', 
+      color = c('blue', 'white', 'red'), title = 'Correlation matrix') +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+---------------------------------------------------- Logistic Regression Model ----------------------------------------------------
+```{r}
+# Build a logistic regression model based on previous analysis
+options(max.print=1000000)
+glm1 = glm(Response ~ Gender + 
+            Age * Vehicle_Age +
+            factor(Driving_License) +
+            factor(Region_Code) +
+            factor(Vehicle_Damage) * factor(Previously_Insured) +
+            Annual_Premium +
+            factor(Policy_Sales_Channel) * Age,
+          data = data,
+          family = "binomial")
+summary(glm1)
+```
+
+```{r}
+vif(glm1)
+```
+
+--------------------------------------------------------- Train Test Split --------------------------------------------------------
+```{r}
+# Randomly assign 80% of data to the training set and train the logistic regression
+## model using data. Then, test the model using the 20% data left to check the
+## prediction accuracy. I performed this process five times using different random
+## number seed and got the mean of the five accuracy numbers. I considered this
+## average number as the final prediction accuracy of the model
+set.seed(123)
+indices1 = sample(nrow(data), 0.8 * nrow(data))
+train_set1 = data[indices1, ]
+test_set1 = data[-indices1, ]
+
+glm_train1 = glm(Response ~ Gender + factor(Driving_License) + factor(Region_Code) +
+                factor(Previously_Insured) * factor(Vehicle_Damage) + Vehicle_Age * Age +
+                Annual_Premium + factor(Policy_Sales_Channel),
+                data = train_set1, family = binomial(link = 'logit'))
+
+res1 = data.frame(predict(glm_train1, newdata = test_set1))
+t_res1 = c()
+for (i in 1: nrow(res1)) {
+  if (res1[i,] < 0.5) {
+    t_res1 = c(t_res1, 0)
+  }
+  else {
+    t_res1 = c(t_res1, 1)
+  }
+}
+accuracy1 = sum(data.frame(t_res1) == test_set1[, 'Response']) / nrow(test_set1)
+accuracy1
+```
+
+```{r}
+set.seed(124)
+indices2 = sample(nrow(data), 0.8 * nrow(data))
+train_set2 = data[indices2,]
+test_set2 = data[-indices2,]
+
+glm_train2 = glm(Response ~ Gender + factor(Driving_License) + factor(Region_Code) +
+                factor(Previously_Insured) * factor(Vehicle_Damage) + Vehicle_Age * Age +
+                Annual_Premium + factor(Policy_Sales_Channel), data = train_set2,
+                family = binomial(link = 'logit'))
+
+res2 = data.frame(predict(glm_train2, newdata = test_set2))
+t_res2 = c()
+for (i in 1: nrow(res2)) {
+  if (res2[i,] < 0.5) {
+    t_res2 = c(t_res2, 0)
+  }
+  else {
+    t_res2 = c(t_res2, 1)
+  }
+}
+accuracy2 = sum(data.frame(t_res2) == test_set2[, 'Response']) / nrow(test_set2)
+accuracy2
+```
+
+```{r}
+set.seed(125)
+indices3 = sample(nrow(data), 0.8 * nrow(data))
+train_set3=data[indices3,]
+test_set3=data[-indices3,]
+
+glm_train3 = glm(Response ~ Gender + factor(Driving_License) + factor(Region_Code) +
+                factor(Previously_Insured) * factor(Vehicle_Damage) + Vehicle_Age * Age +
+                Annual_Premium + factor(Policy_Sales_Channel), data = train_set3,
+                family = binomial(link = 'logit'))
+
+res3 = data.frame(predict(glm_train3, newdata = test_set3))
+t_res3 = c()
+for (i in 1: nrow(res3)) {
+  if (res3[i,] < 0.5) {
+    t_res3 = c(t_res3, 0)
+  }
+  else {
+    t_res3 = c(t_res3, 1)
+  }
+}
+accuracy3 = sum(data.frame(t_res3) == test_set3[, 11]) / 76222
+accuracy3
+```
+
+```{r}
+set.seed(126)
+indices4 = sample(nrow(data), 0.8 * nrow(data))
+train_set4=data[indices4,]
+test_set4=data[-indices4,]
+
+glm_train4 = glm(Response ~ Gender + factor(Driving_License) + factor(Region_Code) +
+                factor(Previously_Insured) * factor(Vehicle_Damage) + Vehicle_Age * Age +
+                Annual_Premium + factor(Policy_Sales_Channel), data = train_set4,
+                family = binomial(link = 'logit'))
+
+res4 = data.frame(predict(glm_train4, newdata = test_set4))
+t_res4 = c()
+for (i in 1: nrow(res4)) {
+  if (res4[i,] < 0.5) {
+    t_res4 = c(t_res4, 0)
+  }
+  else {
+    t_res4 = c(t_res4, 1)
+  }
+}
+accuracy4 = sum(data.frame(t_res4) == test_set4[, 11]) / 76222
+accuracy4
+```
+
+```{r}
+set.seed(127)
+indices5 = sample(nrow(data), 0.8 * nrow(data))
+train_set5=data[indices5,]
+test_set5=data[-indices5,]
+
+glm_train5 = glm(Response ~ Gender + factor(Driving_License) + factor(Region_Code) +
+                factor(Previously_Insured) * factor(Vehicle_Damage) + Vehicle_Age * Age +
+                Annual_Premium + factor(Policy_Sales_Channel), data = train_set5,
+                family = binomial(link = 'logit'))
+
+res5 = data.frame(predict(glm_train5, newdata = test_set5))
+t_res5 = c()
+for (i in 1: nrow(res5)) {
+  if (res5[i,] < 0.5) {
+    t_res5 = c(t_res5, 0)
+  }
+  else {
+    t_res5 = c(t_res5, 1)
+  }
+}
+accuracy5 = sum(data.frame(t_res5) == test_set5[, 11]) / 76222
+accuracy5
+```
+
+```{r}
+mean(accuracy1, accuracy2, accuracy3, accuracy4, accuracy5)
+```
